@@ -98,6 +98,23 @@ fn find_loops(commands: &mut Vec<Command>) -> Result<(), String> {
     Ok(())
 }
 
+fn optimize(program: &mut Vec<Command>) {
+    let mut remove_pair = |first: Command, second: Command| -> bool {
+        for i in 0 .. program.len() - 1 {
+            if (program[i] == first && program[i+1] == second) ||
+               (program[i] == second && program[i+1] == first) {
+                program.remove(i+1);
+                program.remove(i);
+                return true;
+            }
+        }
+        false
+    };
+
+    while remove_pair(Command::INCPTR, Command::DECPTR) {}
+    while remove_pair(Command::INCVAL, Command::DECVAL) {}
+}
+
 fn preprocess(program: &str) -> String {
     let allowed_chars = ['>', '<', '+', '-', '.', ',', '[', ']'];
     program.chars().filter(|c| allowed_chars.contains(c)).collect()
@@ -129,6 +146,7 @@ fn run() -> Result<(), String> {
         Err(e) => return Err(format!("Cannot open file: {}", e)),
     };
     let mut commands = tokenize(&input);
+    optimize(&mut commands);
     find_loops(&mut commands)?;
 
     let mut program = Program{commands};
@@ -219,5 +237,20 @@ mod tests {
 
         let expected = vec!['4' as u8, '2' as u8];
         assert_eq!(buf_out.get_ref(), &expected);
+    }
+
+    #[test]
+    fn test_optimize() {
+        let mut commands = vec![
+            Command::INCPTR, Command::DECPTR,
+            Command::DECPTR, Command::INCPTR,
+            Command::INCVAL, Command::DECVAL,
+            Command::DECVAL, Command::INCVAL,
+            Command::INCPTR, Command::GETC, Command::DECPTR,
+            Command::INCVAL, Command::INCVAL, Command::DECPTR, Command::INCPTR, Command::DECVAL, Command::DECVAL,
+            Command::PUTC, Command::INCVAL,
+        ];
+        optimize(&mut commands);
+        assert_eq!(commands, [Command::INCPTR, Command::GETC, Command::DECPTR, Command::PUTC, Command::INCVAL]);
     }
 }
