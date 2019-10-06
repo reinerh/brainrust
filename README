@@ -1,0 +1,25 @@
+BrainRust
+
+A simple Brainfuck interpreter, written in Rust.
+
+Usage:
+ $ cargo run filename.bf
+
+
+Before running the program, it performs a few simple optimizations,
+like eliminating commands with no effect (e.g. incrementing and decrementing
+a value) and combining sequences of incrementing/decrementing commands
+into single commands.
+
+A cell can hold one byte, and will wrap around after it reaches the maximum.
+The pointer starts at position 0, but can also become negative.
+There is no artificial limitation of the number of cells. Only cells with a value
+different than 0 use up memory.
+
+
+License:
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
