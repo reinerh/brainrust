@@ -50,8 +50,11 @@ impl Program {
                 },
                 Command::GETC => {
                     let mut char_in = [0];
-                    input.read_exact(&mut char_in).or(Err("Reading the input failed"))?;
-                    memory.insert(pos, char_in[0]);
+                    match input.read_exact(&mut char_in) {
+                        Ok(_) => memory.insert(pos, char_in[0]),
+                        Err(ref err) if err.kind() == io::ErrorKind::UnexpectedEof => None /* do nothing */,
+                        Err(_) => return Err("Reading from input failed".to_string()),
+                    };
                 },
                 Command::LOOPSTART { end } => {
                     if *memory.get(&pos).unwrap_or(&0) == 0 {
