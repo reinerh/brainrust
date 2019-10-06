@@ -8,12 +8,12 @@ use std::fs::File;
 use std::io::{self, Read, BufReader};
 use std::collections::HashMap;
 
-#[derive(PartialEq,Debug)]
+#[derive(PartialEq,Copy,Clone,Debug)]
 enum Command {
-    INCPTR,
-    DECPTR,
-    INCVAL,
-    DECVAL,
+    INCPTR { amount: isize },
+    DECPTR { amount: isize },
+    INCVAL { amount: u8 },
+    DECVAL { amount: u8 },
     PUTC,
     GETC,
     LOOPSTART { end: usize },
@@ -34,15 +34,15 @@ impl Program {
                 break;
             }
             match self.commands[pc] {
-                Command::INCPTR => pos = pos.checked_add(1).ok_or("Pointer overflow")?,
-                Command::DECPTR => pos = pos.checked_sub(1).ok_or("Pointer underflow")?,
-                Command::INCVAL => {
+                Command::INCPTR { amount } => pos = pos.checked_add(amount).ok_or("Pointer overflow")?,
+                Command::DECPTR { amount } => pos = pos.checked_sub(amount).ok_or("Pointer underflow")?,
+                Command::INCVAL { amount } => {
                     let val = memory.entry(pos).or_insert(0);
-                    *val = val.wrapping_add(1);
+                    *val = val.wrapping_add(amount);
                 },
-                Command::DECVAL => {
+                Command::DECVAL { amount } => {
                     let val = memory.entry(pos).or_insert(0);
-                    *val = val.wrapping_sub(1);
+                    *val = val.wrapping_sub(amount);
                 },
                 Command::PUTC => {
                     let char_out = *memory.get(&pos).unwrap_or(&0);
@@ -98,7 +98,9 @@ fn find_loops(commands: &mut Vec<Command>) -> Result<(), String> {
     Ok(())
 }
 
-fn optimize(program: &mut Vec<Command>) {
+/// remove pairs of commands that cancel each other,
+/// like (increase_value, decrease_value)
+fn optimize_cancelling_pairs(program: &mut Vec<Command>) {
     let mut remove_pair = |first: Command, second: Command| -> bool {
         for i in 0 .. program.len() - 1 {
             if (program[i] == first && program[i+1] == second) ||
@@ -111,8 +113,39 @@ fn optimize(program: &mut Vec<Command>) {
         false
     };
 
-    while remove_pair(Command::INCPTR, Command::DECPTR) {}
-    while remove_pair(Command::INCVAL, Command::DECVAL) {}
+    while remove_pair(Command::INCPTR { amount: 1 }, Command::DECPTR { amount: 1 }) {}
+    while remove_pair(Command::INCVAL { amount: 1 }, Command::DECVAL { amount: 1 }) {}
+}
+
+/// combine sequences of identical commands into a single command
+fn optimize_sequences(program: &mut Vec<Command>) {
+    let mut to_remove = Vec::new();
+    let mut seq_len = 1;
+    for i in 1 .. program.len() {
+        if program[i-1] != program[i] {
+            seq_len = 1;
+            continue;
+        }
+        // update first element of the sequence
+        match program[i-seq_len] {
+            Command::INCPTR { amount } => program[i-seq_len] = Command::INCPTR { amount: amount.wrapping_add(1) },
+            Command::DECPTR { amount } => program[i-seq_len] = Command::DECPTR { amount: amount.wrapping_add(1) },
+            Command::INCVAL { amount } => program[i-seq_len] = Command::INCVAL { amount: amount.wrapping_add(1) },
+            Command::DECVAL { amount } => program[i-seq_len] = Command::DECVAL { amount: amount.wrapping_add(1) },
+            _ => continue,
+        };
+        to_remove.push(i);
+        seq_len += 1;
+    }
+    // remove elements in reverse direction to keep indexes valid
+    for i in to_remove.iter().rev() {
+        program.remove(*i);
+    }
+}
+
+fn optimize(program: &mut Vec<Command>) {
+    optimize_cancelling_pairs(program);
+    optimize_sequences(program);
 }
 
 fn preprocess(program: &str) -> String {
@@ -123,10 +156,10 @@ fn preprocess(program: &str) -> String {
 fn tokenize(input: &str) -> Vec<Command> {
     input.chars().map(|token|
         match token {
-            '>' => Command::INCPTR,
-            '<' => Command::DECPTR,
-            '+' => Command::INCVAL,
-            '-' => Command::DECVAL,
+            '>' => Command::INCPTR { amount: 1 },
+            '<' => Command::DECPTR { amount: 1 },
+            '+' => Command::INCVAL { amount: 1 },
+            '-' => Command::DECVAL { amount: 1 },
             '.' => Command::PUTC,
             ',' => Command::GETC,
             '[' => Command::LOOPSTART { end: 0 },
@@ -176,10 +209,10 @@ mod tests {
         assert_eq!(tokenize(""), []);
         assert_eq!(tokenize("><+-.,[]"),
                    [
-                    Command::INCPTR,
-                    Command::DECPTR,
-                    Command::INCVAL,
-                    Command::DECVAL,
+                    Command::INCPTR { amount: 1 },
+                    Command::DECPTR { amount: 1 },
+                    Command::INCVAL { amount: 1 },
+                    Command::DECVAL { amount: 1 },
                     Command::PUTC,
                     Command::GETC,
                     Command::LOOPSTART { end: 0 },
@@ -197,12 +230,12 @@ mod tests {
     #[test]
     fn test_find_loops() {
         let mut commands = vec![
-            Command::INCPTR,
-            Command::INCVAL,
+            Command::INCPTR { amount: 1 },
+            Command::INCVAL { amount: 1 },
             Command::LOOPSTART { end: 0 },
-            Command::DECPTR,
+            Command::DECPTR { amount: 1 },
             Command::LOOPSTART { end: 0 },
-            Command::DECVAL,
+            Command::DECVAL { amount: 1 },
             Command::LOOPEND { start: 0 },
             Command::PUTC,
             Command::LOOPEND { start: 0 },
@@ -216,10 +249,18 @@ mod tests {
 
     #[test]
     fn test_find_loop_unbalanced() {
-        let mut commands = vec![Command::INCPTR, Command::LOOPSTART { end: 0 }, Command::INCVAL];
+        let mut commands = vec![
+                                Command::INCPTR { amount: 1 },
+                                Command::LOOPSTART { end: 0 },
+                                Command::INCVAL { amount: 1 }
+                               ];
         assert!(find_loops(&mut commands).is_err());
 
-        let mut commands = vec![Command::INCPTR, Command::LOOPEND { start: 0 }, Command::INCVAL];
+        let mut commands = vec![
+                                Command::INCPTR { amount: 1 },
+                                Command::LOOPEND { start: 0 },
+                                Command::INCVAL { amount: 1 },
+                               ];
         assert!(find_loops(&mut commands).is_err());
     }
 
@@ -240,17 +281,60 @@ mod tests {
     }
 
     #[test]
-    fn test_optimize() {
+    fn test_optimize_pair_removal() {
+        let incv = Command::INCVAL { amount: 1 };
+        let decv = Command::DECVAL { amount: 1 };
+        let incp = Command::INCPTR { amount: 1 };
+        let decp = Command::DECPTR { amount: 1 };
         let mut commands = vec![
-            Command::INCPTR, Command::DECPTR,
-            Command::DECPTR, Command::INCPTR,
-            Command::INCVAL, Command::DECVAL,
-            Command::DECVAL, Command::INCVAL,
-            Command::INCPTR, Command::GETC, Command::DECPTR,
-            Command::INCVAL, Command::INCVAL, Command::DECPTR, Command::INCPTR, Command::DECVAL, Command::DECVAL,
-            Command::PUTC, Command::INCVAL,
+            incp, decp, decp, incp,
+            incv, decv, decv, incv,
+            incp, Command::GETC, decp,
+            incv, incv, decp, incp, decv, decv,
+            Command::PUTC, incv,
         ];
+        optimize_cancelling_pairs(&mut commands);
+        assert_eq!(commands, [incp, Command::GETC, decp, Command::PUTC, incv]);
+    }
+
+    #[test]
+    fn test_optimize_sequences() {
+        let incv = Command::INCVAL { amount: 1 };
+        let decv = Command::DECVAL { amount: 1 };
+        let incp = Command::INCPTR { amount: 1 };
+        let decp = Command::DECPTR { amount: 1 };
+        let mut commands = vec![incv, decv, incp, decp, incv, incp, incv, incp];
+        optimize_sequences(&mut commands);
+        assert_eq!(commands, [incv, decv, incp, decp, incv, incp, incv, incp]);
+
+        let mut commands = vec![incv, incv, incv, incv, decp, decp, incp, incp, incp, decv, decv];
+        optimize_sequences(&mut commands);
+        assert_eq!(commands, [
+                              Command::INCVAL { amount: 4 },
+                              Command::DECPTR { amount: 2 },
+                              Command::INCPTR { amount: 3 },
+                              Command::DECVAL { amount: 2 },
+                             ]
+        );
+
+        let mut commands = vec![
+                                Command::PUTC, Command::PUTC, Command::GETC, Command::GETC,
+                                Command::LOOPSTART { end: 0 }, Command::LOOPSTART { end: 0 },
+                                Command::LOOPEND { start: 0 }, Command::LOOPEND { start: 0 }
+                               ];
+        let expected = commands.clone();
+        optimize_sequences(&mut commands);
+        assert_eq!(commands, expected);
+    }
+
+    #[test]
+    fn test_optimize() {
+        let incv = Command::INCVAL { amount: 1 };
+        let decv = Command::DECVAL { amount: 1 };
+        let incp = Command::INCPTR { amount: 1 };
+        let decp = Command::DECPTR { amount: 1 };
+        let mut commands = vec![incv, incp, decp, incv, incv, decv, incv];
         optimize(&mut commands);
-        assert_eq!(commands, [Command::INCPTR, Command::GETC, Command::DECPTR, Command::PUTC, Command::INCVAL]);
+        assert_eq!(commands, [Command::INCVAL { amount: 3 }]);
     }
 }
