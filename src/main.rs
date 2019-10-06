@@ -72,6 +72,7 @@ impl Program {
     }
 }
 
+/// read the program from the specified file into a string
 fn read_program(filename: &str) -> Result<String, io::Error> {
     let file = File::open(filename)?;
     let mut content = String::new();
@@ -80,6 +81,7 @@ fn read_program(filename: &str) -> Result<String, io::Error> {
     Ok(content)
 }
 
+/// update loop tokens and look for the matching opposing parts
 fn find_loops(commands: &mut Vec<Command>) -> Result<(), String> {
     let mut loop_starts = Vec::new();
     for i in 0 .. commands.len() {
@@ -151,11 +153,13 @@ fn optimize(program: &mut Vec<Command>) {
     optimize_sequences(program);
 }
 
+/// filter out all non-syntax characters from the input
 fn preprocess(program: &str) -> String {
     let allowed_chars = ['>', '<', '+', '-', '.', ',', '[', ']'];
     program.chars().filter(|c| allowed_chars.contains(c)).collect()
 }
 
+/// convert input string into syntax tokens
 fn tokenize(input: &str) -> Vec<Command> {
     input.chars().map(|token|
         match token {
